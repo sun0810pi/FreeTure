@@ -1241,6 +1241,59 @@ body.on-landing .ambient{display:none}
 .mascot>b>i{animation-play-state:paused}
 .mascot[data-pose=hello]>b[data-p=hello]>i,.mascot[data-pose=run]>b[data-p=run]>i,.mascot[data-pose=map]>b[data-p=map]>i,.mascot[data-pose=wait]>b[data-p=wait]>i{animation-play-state:running}
 .rv:not(.in){opacity:1;transform:none}
+
+/* ===== Hiệu năng app (dashboard) =====
+   Kính mờ (backdrop-filter) trên hàng chục thẻ bắt trình duyệt làm mờ lại nền sau từng thẻ ở MỖI khung hình
+   khi cuộn, khi mascot nhún hoặc khi nền màu trôi: đó là nguyên nhân chính gây khựng (chỉ còn ~25 khung hình/giây).
+   Phía sau các thẻ chỉ là vài vệt màu vốn đã rất mềm, nên bỏ làm mờ gần như không đổi giao diện.
+   Vẫn giữ kính mờ cho thanh trên cùng, thanh điều hướng dưới và các hộp nổi (modal, thông báo). */
+.panel,.kpi,.prod,.week,.tbl-wrap,.zone-banner,.roles,.tagcard .tc-body,.chat-fab,.ts-dots,.tour-show figcaption,.lmap .map-tools .seg{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+:root{--glass-bg:rgba(255,253,246,.7)}
+:root[data-theme="dark"]{--glass-bg:rgba(24,36,30,.66)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--glass-bg:rgba(24,36,30,.66)}}
+/* Trang trong app đổi bằng mờ dần nhẹ, không trượt cả trang */
+.page.on{animation:pin-fade .18s ease-out}
+@keyframes pin-fade{from{opacity:.55}to{opacity:1}}
+@media (max-width:980px){
+  /* Điện thoại: hộp chat nằm trên nội dung đang cuộn, bỏ làm mờ để cuộn không giật */
+  .chat{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--surface)}
+}
+
+/* Bản đồ là một vùng bố cục riêng: thêm/bớt điểm trên bản đồ không bắt trình duyệt tính lại cả trang */
+.lmap{contain:layout paint}
+.lmap .lm{contain:strict}
+
+/* ===== Sửa lỗi: đầu vé bị ép thành ô 64px (trùng tên lớp .th với ảnh thu nhỏ) ===== */
+.ticket .th{float:none;width:auto;height:auto;margin:0;border-radius:0;overflow:visible}
+.ticket .th b{overflow-wrap:anywhere}
+
+/* ===== Bong bóng chat có mascot: to, rõ, bấm dễ ===== */
+.chat-fab{gap:10px;padding:0 18px 0 6px;min-height:54px;background:var(--me);color:var(--on-me);box-shadow:0 0 0 3px color-mix(in srgb,var(--surface) 70%,transparent),0 14px 30px -10px rgba(10,30,20,.55)}
+.chat-fab .m-head{width:44px;height:44px;box-shadow:inset 0 0 0 2px rgba(255,255,255,.75)}
+.chat-fab:active{transform:scale(.96)}
+@media (max-width:980px){
+  .chat-fab span.m-head{display:inline-block}
+  .chat-fab{width:62px;height:62px;min-height:0;padding:0;justify-content:center;border-radius:50%}
+  .chat-fab .m-head{width:54px;height:54px}
+  body.chat-open .chat-fab{opacity:0;pointer-events:none}
+}
+
+/* ===== Quà OCOP trên điện thoại: lưới 2 cột, thẻ gọn, một màn hình thấy khoảng 4 món ===== */
+@media (max-width:640px){
+  .shop-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .prod{border-radius:12px}
+  .prod-img{aspect-ratio:1/1}
+  .prod-badge{left:6px;top:6px;min-height:20px;padding:1px 6px;font-size:.66em}
+  .prod-body{padding:8px 9px 9px;gap:1px}
+  .prod-body>b{font-size:.86em;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .prod-body .note{font-size:.7em;line-height:1.35;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+  .prod-foot{flex-wrap:wrap;gap:6px;padding-top:6px}
+  .prod-price{font-size:.92em}
+  .prod-foot>.btn{min-height:32px;padding:0 10px;margin-left:auto}
+  .prod-foot .qty{margin-left:auto;gap:6px}
+  .prod-foot .qty .btn{min-height:32px;min-width:32px}
+  .prod-cred{font-size:.6em;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+}
 </style>
 
 </head>
@@ -2185,12 +2238,28 @@ function loadLeaflet() { // tải Leaflet lần đầu cần bản đồ; lỗi 
   document.head.appendChild(sc);
 }
 function drawIn(path) { if (!path || reducedMotion()) return; path.setAttribute('pathLength', '1'); path.classList.add('route-draw'); }
+/* Bản đồ đang sống. Trước đây mỗi lần chuyển trang hoặc bật/tắt một hoạt động lại tạo bản đồ mới và không bao giờ
+   gỡ bản cũ (rò bộ nhớ, tải lại ô bản đồ, càng dùng càng nặng). Giờ: bản đồ cũ ở cùng vị trí được dùng lại,
+   chỉ vẽ lại tuyến và điểm; bản đồ không còn trên trang thì được gỡ hẳn. */
+const LIVE_MAPS = [];
+const mapSlot = el => (el.parentElement && el.parentElement.closest('[id]') || {}).id || '';
+function pruneMaps() {
+  for (let i = LIVE_MAPS.length; i--;) { const x = LIVE_MAPS[i]; if (x.el.isConnected) continue;
+    try { x.ro && x.ro.disconnect(); window.removeEventListener('rt-theme', x.onTheme); clearTimeout(x.offT); x.m.remove(); } catch {}
+    MAPREG.delete(x.id); LIVE_MAPS.splice(i, 1); }
+}
 function initMaps() {
   const els = $$('[data-map]:not([data-init])').filter(el => el.isConnected);
-  if (!els.length) return;
+  if (!els.length) { if (LIVE_MAPS.some(x => !x.el.isConnected)) pruneMaps(); return; }
   if (!window.L) { if (leafletState === 'failed') els.forEach(el => { el.dataset.init = 1; el.outerHTML = mapSchematic(MAPREG.get(el.dataset.map) || {}); }); else loadLeaflet(); return; }
   els.forEach(el => {
-    el.dataset.init = 1; const o = MAPREG.get(el.dataset.map) || {};
+    const o = MAPREG.get(el.dataset.map) || {}, slot = mapSlot(el);
+    const old = LIVE_MAPS.find(x => !x.el.isConnected && x.slot === slot);
+    if (old) { // dùng lại bản đồ cũ: đặt nó vào chỗ khung mới, chỉ vẽ lại lớp tuyến/điểm
+      MAPREG.delete(old.id); old.id = el.dataset.map; old.el.dataset.map = old.id;
+      el.replaceWith(old.el); old.m.invalidateSize({ pan: false }); old.draw(o, false); return;
+    }
+    el.dataset.init = 1;
     const LF = window.L;
     const box = $('.lm', el), ll = p => [p.lat, p.lng];
     const m = LF.map(box, { scrollWheelZoom: false, zoomSnap: .5, attributionControl: true });
@@ -2199,26 +2268,38 @@ function initMaps() {
     const setBase = k => { if (base) m.removeLayer(base); base = baseLayer(k); (base.eachLayer ? (f => base.eachLayer(f)) : (f => f(base)))(t => t.on('tileload', () => { loaded = true; el.classList.remove('offline'); if (schem) { m.removeLayer(schem); schem = null; } })); base.addTo(m); };
     setBase(mapBase);
     $$('[data-base]', el).forEach(b => b.onclick = () => { mapBase = b.dataset.base; savePref('ft-mapbase', mapBase); $$('[data-base]', el).forEach(x => x.classList.toggle('on', x === b)); setBase(mapBase); });
-    window.addEventListener('rt-theme', () => { if (el.isConnected && mapBase === 'street') setBase('street'); });
-    const me = cssVar('--me'), tag = cssVar('--tag'), ink = cssVar('--ink');
-    LF.circle(ll(RULES.center), { radius: RULES.zoneKm * 1000, color: me, weight: 1.2, dashArray: '5 5', fillColor: me, fillOpacity: .05, interactive: false }).addTo(m);
-    const pts = [];
-    if (o.routeP) { const casing = LF.polyline(o.routeP.map(ll), { color: '#F8F5EB', weight: 8, opacity: .85, lineJoin: 'round', interactive: false }).addTo(m); const line = LF.polyline(o.routeP.map(ll), { color: me, weight: 4, opacity: .95, lineJoin: 'round' }).addTo(m); drawIn(casing.getElement && casing.getElement()); drawIn(line.getElement && line.getElement()); pts.push(...o.routeP.map(ll)); }
-    (o.routeL || []).forEach(([a, b]) => { LF.polyline([ll(a), ll(b)], { color: tag, weight: 4, dashArray: '1 8', lineCap: 'round' }).addTo(m); pts.push(ll(a), ll(b)); });
-    KEEPERS.forEach(k => { const on = (o.keepers || []).includes(k.id); if (!on && !o.labelKeepers && !o.routeP && !(o.acts || []).length) return;
-      LF.marker(ll(k), { icon: LF.divIcon({ className: 'kp' + (k.pending ? ' pend' : '') + (on ? ' on' : ''), html: `<span class="kp-i">${k.id}</span>`, iconSize: null }), zIndexOffset: on ? 500 : 0 }).bindTooltip(`<b>${esc(keeperName(k))}</b><br>${hm(k.open[0])}–${hm(k.open[1])}${k.pending ? ' · ' + T('chưa mở bán', 'not on sale') : ''}`, { direction: 'top', offset: [0, -10] }).addTo(m); if (on) pts.push(ll(k)); });
-    (o.acts || []).forEach(a => { const on = (o.actOn || []).includes(a.id); const col = CAT_COL[a.cat] ? cssVar(CAT_COL[a.cat]) : '#6B5BD6';
-      const cm = LF.circleMarker(ll(a), { radius: on ? 7 : 4.5, color: cssVar('--surface') || '#fff', weight: 2, fillColor: col, fillOpacity: on ? 1 : .75 }).bindTooltip(esc(L(a.name)), { direction: 'top', offset: [0, -6], permanent: on && (o.actOn || []).length <= 3, className: on ? 'tt-on' : '' }).addTo(m); if (on && !o.routeP) pts.push(ll(a)); });
-    (o.ends || []).forEach(([p, lab]) => { LF.marker(ll(p), { icon: LF.divIcon({ className: 'endm', html: `<span class="end-i"><b>${lab}</b><em>${esc(placeShort(p))}</em></span>`, iconSize: null }), zIndexOffset: 1000 }).addTo(m); pts.push(ll(p)); });
-    if (pts.length > 1) m.fitBounds(LF.latLngBounds(pts), { paddingTopLeft: [50, 56], paddingBottomRight: [110, 30], maxZoom: 16 }); else m.setView(ll(RULES.center), 14);
-    setTimeout(() => { m.invalidateSize(); if (!loaded) { el.classList.add('offline'); schem = LF.layerGroup([
+    const onTheme = () => { if (el.isConnected && mapBase === 'street') setBase('street'); entry.draw(entry.o, false); };
+    window.addEventListener('rt-theme', onTheme);
+    const ov = LF.layerGroup().addTo(m);
+    const draw = (o, anim) => {
+      entry.o = o; ov.clearLayers();
+      const me = cssVar('--me'), tag = cssVar('--tag'), surf = cssVar('--surface') || '#fff';
+      LF.circle(ll(RULES.center), { radius: RULES.zoneKm * 1000, color: me, weight: 1.2, dashArray: '5 5', fillColor: me, fillOpacity: .05, interactive: false }).addTo(ov);
+      const pts = [];
+      if (o.routeP) { const casing = LF.polyline(o.routeP.map(ll), { color: '#F8F5EB', weight: 8, opacity: .85, lineJoin: 'round', interactive: false }).addTo(ov); const line = LF.polyline(o.routeP.map(ll), { color: me, weight: 4, opacity: .95, lineJoin: 'round' }).addTo(ov); if (anim) { drawIn(casing.getElement && casing.getElement()); drawIn(line.getElement && line.getElement()); } pts.push(...o.routeP.map(ll)); }
+      (o.routeL || []).forEach(([a, b]) => { LF.polyline([ll(a), ll(b)], { color: tag, weight: 4, dashArray: '1 8', lineCap: 'round' }).addTo(ov); pts.push(ll(a), ll(b)); });
+      KEEPERS.forEach(k => { const on = (o.keepers || []).includes(k.id); if (!on && !o.labelKeepers && !o.routeP && !(o.acts || []).length) return;
+        LF.marker(ll(k), { icon: LF.divIcon({ className: 'kp' + (k.pending ? ' pend' : '') + (on ? ' on' : ''), html: `<span class="kp-i">${k.id}</span>`, iconSize: null }), zIndexOffset: on ? 500 : 0 }).bindTooltip(`<b>${esc(keeperName(k))}</b><br>${hm(k.open[0])}–${hm(k.open[1])}${k.pending ? ' · ' + T('chưa mở bán', 'not on sale') : ''}`, { direction: 'top', offset: [0, -10] }).addTo(ov); if (on) pts.push(ll(k)); });
+      (o.acts || []).forEach(a => { const on = (o.actOn || []).includes(a.id); const col = CAT_COL[a.cat] ? cssVar(CAT_COL[a.cat]) : '#6B5BD6';
+        LF.circleMarker(ll(a), { radius: on ? 7 : 4.5, color: surf, weight: 2, fillColor: col, fillOpacity: on ? 1 : .75 }).bindTooltip(esc(L(a.name)), { direction: 'top', offset: [0, -6], permanent: on && (o.actOn || []).length <= 3, className: on ? 'tt-on' : '' }).addTo(ov); if (on && !o.routeP) pts.push(ll(a)); });
+      (o.ends || []).forEach(([p, lab]) => { LF.marker(ll(p), { icon: LF.divIcon({ className: 'endm', html: `<span class="end-i"><b>${lab}</b><em>${esc(placeShort(p))}</em></span>`, iconSize: null }), zIndexOffset: 1000 }).addTo(ov); pts.push(ll(p)); });
+      if (pts.length > 1) m.fitBounds(LF.latLngBounds(pts), { paddingTopLeft: [50, 56], paddingBottomRight: [110, 30], maxZoom: 16, animate: !anim }); else m.setView(ll(RULES.center), 14, { animate: !anim });
+    };
+    const entry = { el, m, id: el.dataset.map, slot, onTheme, draw, o, ro: null, offT: 0 };
+    LIVE_MAPS.push(entry);
+    draw(o, true);
+    entry.offT = setTimeout(() => { if (!el.isConnected) return; m.invalidateSize(); if (!loaded) { el.classList.add('offline'); schem = LF.layerGroup([
       LF.polyline(RIVER, { color: cssVar('--river'), opacity: .35, weight: 18, interactive: false }), LF.polyline(CANAL_S, { color: cssVar('--river'), opacity: .3, weight: 6, interactive: false }), LF.polyline(CANAL_N, { color: cssVar('--river'), opacity: .3, weight: 5, interactive: false }), LF.polyline(METRO, { color: cssVar('--bad'), opacity: .55, weight: 2.5, interactive: false }),
       ...[[T('QUẬN 1', 'DISTRICT 1'), 10.7700, 106.7005], [T('QUẬN 3', 'DISTRICT 3'), 10.7860, 106.6830], ['PHÚ NHUẬN', 10.8000, 106.6800], ['TÂN BÌNH', 10.8070, 106.6600], ['THỦ THIÊM', 10.7800, 106.7120]].map(([t, la, ln]) => LF.marker([la, ln], { interactive: false, icon: LF.divIcon({ className: 'dlab', html: `<span>${t}</span>`, iconSize: null }) }))]).addTo(m); schem.eachLayer(x => x.bringToBack && x.bringToBack()); } }, 3500);
-    if ('ResizeObserver' in window) new ResizeObserver(() => m.invalidateSize()).observe(box);
+    if ('ResizeObserver' in window) { let q = 0; entry.ro = new ResizeObserver(() => { if (!q) q = requestAnimationFrame(() => { q = 0; if (el.isConnected) m.invalidateSize({ pan: false }); }); }); entry.ro.observe(box); }
   });
+  pruneMaps();
 }
 // Lưu ý: L() trong app là hàm ngôn ngữ; Leaflet được gọi qua window.L
-new MutationObserver(() => requestAnimationFrame(initMaps)).observe(document.documentElement, { childList: true, subtree: true });
+// Gộp mọi thay đổi DOM trong một khung hình thành một lần kiểm tra (trước đây mỗi thay đổi xếp một lượt riêng)
+let domTickQ = 0;
+const domTick = () => { domTickQ = 0; initMaps(); mascotFill(); };
+new MutationObserver(() => { if (!domTickQ) domTickQ = requestAnimationFrame(domTick); }).observe(document.documentElement, { childList: true, subtree: true });
 function routeOf(r) {
   const S = byId(r.inp.start), E = byId(r.inp.end), K = keeperById(r.ch.K);
   const pts = [S]; if (r.ch.drop === 'self') pts.push(K);
@@ -2406,7 +2487,7 @@ function renderLanding() {
 const MF = { hello: [['hello', 'hello3'], 2.8], run: [['run', 'hello2', 'run2', 'run3'], 2.4], map: [['map', 'map2', 'map3'], 3.9], wait: [['wait', 'wait2', 'wait3'], 5.1] };
 const MF_HTML = Object.entries(MF).map(([p, [fs, T]]) => `<b data-p="${p}" aria-hidden="true">${fs.map((f, k) => `<i style="background-image:var(--mf-${f});animation-name:mf${fs.length};animation-duration:${T}s;animation-delay:${((k / fs.length - 1) * T).toFixed(2)}s"></i>`).join('')}</b>`).join('');
 function mascotFill(root) { (root || document).querySelectorAll('.mascot:not([data-mf])').forEach(m => { m.dataset.mf = 1; m.insertAdjacentHTML('beforeend', MF_HTML); }); }
-new MutationObserver(() => mascotFill()).observe(document.body, { childList: true, subtree: true });
+// (mascotFill chạy chung với domTick ở trên, không cần bộ theo dõi riêng)
 /* Mascot: đổi tư thế kèm một cú nhún; giảm chuyển động thì chỉ đổi ảnh */
 function setMascot(pose, el) { (el ? [el] : $$('.mascot.live')).forEach(m => { if (!m || m.dataset.pose === pose) return; m.dataset.pose = pose; m.classList.remove('hop'); void m.offsetWidth; m.classList.add('hop'); }); }
 /* Quy trình 7 bước: thanh liền nối tâm các chấm, tô theo độ cuộn và trôi mượt (nội suy mỗi khung hình) */
@@ -2443,7 +2524,7 @@ function st7Tick(now) {
   st7.cur = Math.abs(d) < .0008 || reducedMotion() ? st7.target : st7.cur + d * easeK(now, st7.t, 110); st7.t = now; st7Paint();
   if (st7.cur !== st7.target) st7.raf = requestAnimationFrame(st7Tick); else st7.t = 0;
 }
-const st7Kick = () => { if (!st7.raf) st7.raf = requestAnimationFrame(st7Tick); };
+const st7Kick = () => { if (!st7.raf && !document.body.classList.contains('in-app')) st7.raf = requestAnimationFrame(st7Tick); }; // trong app không cần theo dõi cuộn của trang giới thiệu
 function setupSteps7() {
   const box = $('#landingMain .steps7'); if (!box) return;
   box.insertAdjacentHTML('afterbegin', '<div class="s7-rail" aria-hidden="true"><div class="s7-fw"><div class="s7-fill"></div></div><span class="s7-head"></span></div>');
@@ -2491,7 +2572,7 @@ function scTick(now) {
   const d = m.u - scn.cur; scn.cur = Math.abs(d) < .0015 || reducedMotion() ? m.u : scn.cur + d * easeK(now, scn.t, 110); scn.t = now;
   scPaint(scn.cur, m.over); if (scn.cur !== m.u) scn.raf = requestAnimationFrame(scTick); else scn.t = 0;
 }
-const scKick = () => { if (!scn.raf) scn.raf = requestAnimationFrame(scTick); };
+const scKick = () => { if (!scn.raf && !document.body.classList.contains('in-app')) scn.raf = requestAnimationFrame(scTick); };
 function setupScene() {
   if (!$('#app')?.classList.contains('on')) document.body.classList.add('on-landing');
   scn.g = null; scn.k = -1; scGeo(); const m = scMeasure(); scn.cur = m ? m.u : 0; scKick();
@@ -2781,7 +2862,7 @@ function enterApp(want) {
   if (!$('#chatBody').children.length) botSay(T(`Chào ${esc(user.name)}, mình là FreeTure, người giữ vali kiêm dẫn đường của bạn. Bạn cần gì cứ hỏi nhé.`, `Hi ${esc(user.name)}, I'm FreeTure, your bag keeper and guide. Ask me anything about your trip.`));
   nav(want || ROLE_PAGES[role][0]); ftNudge(6000);
 }
-function backToLanding() { $('#app').classList.remove('on'); $('#landing').style.display = ''; document.body.classList.remove('in-app'); document.body.classList.add('on-landing'); try { history.replaceState(null, '', '#top'); } catch {} window.scrollTo(0, 0); }
+function backToLanding() { $('#app').classList.remove('on'); $('#landing').style.display = ''; document.body.classList.remove('in-app'); document.body.classList.add('on-landing'); try { history.replaceState(null, '', '#top'); } catch {} window.scrollTo(0, 0); requestAnimationFrame(() => { st7Layout(); scGeo(); st7Kick(); scKick(); }); }
 function routeHash() { const m = location.hash.match(/^#app-([a-z]+)$/); if (m && NAV[m[1]]) { const r = Object.keys(ROLE_PAGES).find(k => ROLE_PAGES[k].includes(m[1])); if (!ROLE_PAGES[role].includes(m[1]) && r) { role = r; user = { ...DEMO_ACC[r], role: r, demo: true }; } if ($('#app').classList.contains('on')) nav(m[1]); else enterApp(m[1]); } }
 window.addEventListener('hashchange', routeHash);
 function setLang(l) { LANG = l; savePref('rt-lang', l); applyStatic(); renderLanding(); if ($('#app').classList.contains('on')) { renderShell(); renderChatChips(); nav(currentPage, { keepScroll: true }); } }
@@ -2871,7 +2952,7 @@ const KB = [
 const CHIPS = () => [T('Có tuyến nào gợi ý?', 'Any suggested routes?'), T('Giá bao nhiêu?', 'How much is it?'), T('Vali có an toàn không?', 'Are my bags safe?'), T('Có giao ra sân bay không?', 'Do you deliver to the airport?'), T('OCOP ở đâu trong chuyến?', 'Where does OCOP fit?'), T('Khác gì khách sạn giữ đồ?', 'Why not the hotel?')];
 function renderChatChips() { $('#chatChips').innerHTML = CHIPS().map(c => `<button type="button">${esc(c)}</button>`).join(''); $$('#chatChips button').forEach(b => b.onclick = () => { $('#chatInput').value = b.textContent; sendChat(); }); applyStatic($('#chat')); }
 function botSay(html, src) { const d = document.createElement('div'); d.className = 'msg bot'; d.innerHTML = html; $('#chatBody').appendChild(d); $('#chatBody').scrollTop = 1e6; }
-function toggleChat() { const c = $('#chat'); c.classList.toggle('on'); if (c.classList.contains('on')) { if (!$('#chatBody').children.length) { renderChatChips(); botSay(T('Chào bạn, mình là FreeTure, người giữ vali kiêm dẫn đường. Bạn cần gì cứ hỏi nhé.', 'Hi, I\'m FreeTure, your bag keeper and guide. Ask me anything about your trip.')); } setTimeout(() => $('#chatInput').focus(), 50); } }
+function toggleChat() { const c = $('#chat'); c.classList.toggle('on'); document.body.classList.toggle('chat-open', c.classList.contains('on')); if (c.classList.contains('on')) { if (!$('#chatBody').children.length) { renderChatChips(); botSay(T('Chào bạn, mình là FreeTure, người giữ vali kiêm dẫn đường. Bạn cần gì cứ hỏi nhé.', 'Hi, I\'m FreeTure, your bag keeper and guide. Ask me anything about your trip.')); } setTimeout(() => $('#chatInput').focus(), 50); } }
 async function sendChat() {
   const q = $('#chatInput').value.trim(); if (!q) return; $('#chatInput').value = '';
   const d = document.createElement('div'); d.className = 'msg me'; d.textContent = q; $('#chatBody').appendChild(d); $('#chatBody').scrollTop = 1e6;
